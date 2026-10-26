@@ -11,7 +11,7 @@ const round=x=>Math.round(x*10)/10;
 const nutrition=(f,g)=>({kcal:round(f.kcal*g/(f.basis||100)),protein:round(f.protein*g/(f.basis||100)),fat:round(f.fat*g/(f.basis||100)),carbs:round(f.carbs*g/(f.basis||100))});
 const totals=items=>items.reduce((a,x)=>{for(const k of ['kcal','protein','fat','carbs'])a[k]+=Number(x[k]||0);return a},{kcal:0,protein:0,fat:0,carbs:0});
 function el(tag,cls,text){const e=document.createElement(tag);if(cls)e.className=cls;if(text!==undefined)e.textContent=text;return e}
-function render(){const today=entries.filter(x=>x.date===dateKey()),t=totals(today);$('#total-kcal').textContent=Math.round(t.kcal);$('#target-kcal').textContent=targets.kcal;$('#cal-progress').style.width=Math.min(100,t.kcal/targets.kcal*100)+'%';$('#remaining-text').textContent=t.kcal>targets.kcal?`Over goal by ${Math.round(t.kcal-targets.kcal)} kcal`:`Remaining: ${Math.round(targets.kcal-t.kcal)} kcal`;for(const k of ['protein','fat','carbs']){$('#'+k+'-val').textContent=round(t[k])+' g';$('#'+k+'-target').textContent='Goal: '+targets[k]+' g'}const list=$('#meal-list');list.replaceChildren();if(!today.length)list.append(el('p','muted','No food logged yet.'));for(const x of [...today].reverse()){const row=el('div','meal-row'),a=el('div'),b=el('div');a.append(el('strong','',x.name),el('small','',`${x.meal} · ${x.grams}g · 蛋白 ${x.protein}g · Fat ${x.fat}g · Carbs ${x.carbs}g`));b.append(el('strong','',`${Math.round(x.kcal)} kcal`));const del=el('button','','Delete');del.onclick=()=>{entries=entries.filter(v=>v.id!==x.id);save();render();if(session)api("/api/entry/"+encodeURIComponent(x.id),{method:"DELETE"}).catch(e=>alert("Cloud deletion failed: "+e.message));queueSync()};b.append(del);row.append(a,b);list.append(row)}renderHistory()}
+function render(){const today=entries.filter(x=>x.date===dateKey()),t=totals(today);$('#total-kcal').textContent=Math.round(t.kcal);$('#target-kcal').textContent=targets.kcal;$('#cal-progress').style.width=Math.min(100,t.kcal/targets.kcal*100)+'%';$('#remaining-text').textContent=t.kcal>targets.kcal?`Over goal by ${Math.round(t.kcal-targets.kcal)} kcal`:`Remaining: ${Math.round(targets.kcal-t.kcal)} kcal`;for(const k of ['protein','fat','carbs']){$('#'+k+'-val').textContent=round(t[k])+' g';$('#'+k+'-target').textContent='Goal: '+targets[k]+' g'}const list=$('#meal-list');list.replaceChildren();if(!today.length)list.append(el('p','muted','No food logged yet.'));for(const x of [...today].reverse()){const row=el('div','meal-row'),a=el('div'),b=el('div');a.append(el('strong','',x.name),el('small','',`${x.meal} · ${x.grams}${typeof x.grams==='number'?'g':''} · 蛋白 ${x.protein}g · Fat ${x.fat}g · Carbs ${x.carbs}g`));b.append(el('strong','',`${Math.round(x.kcal)} kcal`));const del=el('button','','Delete');del.onclick=()=>{entries=entries.filter(v=>v.id!==x.id);save();render();if(session)api("/api/entry/"+encodeURIComponent(x.id),{method:"DELETE"}).catch(e=>alert("Cloud deletion failed: "+e.message));queueSync()};b.append(del);row.append(a,b);list.append(row)}renderHistory()}
 function renderHistory(){const wrap=$('#history-list');wrap.replaceChildren();for(let i=0;i<14;i++){const d=new Date();d.setDate(d.getDate()-i);const key=dateKey(d),day=entries.filter(x=>x.date===key),t=totals(day),row=el('div','history-row');row.append(el('span','',`${key} · ${day.length} entries`),el('strong','',`${Math.round(t.kcal)} kcal / ${round(t.protein)}g 蛋白`));wrap.append(row)}}
 function choose(f){selected=f;$('#selected-food').classList.remove('hidden');$('#selected-name').textContent=f.name;$('#selected-source').textContent=f.source||'Reference value';preview()}
 function preview(){if(!selected)return;const g=Number($('#food-grams').value)||0,n=nutrition(selected,g);$('#food-preview').textContent=`${n.kcal} kcal · 蛋白 ${n.protein}g · Fat ${n.fat}g · Carbs ${n.carbs}g`}
@@ -35,5 +35,36 @@ async function syncCloud(){if(!session||!authReady())return;try{const data=await
 let syncTimeout;function queueSync(){if(!session)return;clearTimeout(syncTimeout);syncTimeout=setTimeout(syncCloud,900)}$('#sync-now').onclick=syncCloud;
 $('#delete-account').onclick=async()=>{if(!confirm('Permanently delete your cloud account and records? This cannot be undone.'))return;try{await api('/api/account',{method:'DELETE'});session=null;localStorage.removeItem('nutriai.session');updateAuth();alert('Cloud account deleted. Local records remain until cleared.')}catch(e){alert(e.message)}};
 async function getImage(){const file=$('#ai-image').files[0];if(!file)return null;if(file.size>2*1024*1024)throw Error('Image must be under 2 MB');if(!['image/jpeg','image/png','image/webp'].includes(file.type))throw Error('Only JPG, PNG and WebP are supported');return new Promise((resolve,reject)=>{const reader=new FileReader();reader.onload=()=>resolve(reader.result);reader.onerror=()=>reject(Error('Could not read image'));reader.readAsDataURL(file)})}
-$('#analyze-btn').onclick=async()=>{const prompt=$('#ai-prompt').value.trim(),message=$('#ai-message'),out=$('#ai-results');if(!prompt&&!$('#ai-image').files.length)return alert('Enter a food description or upload a photo');if(!session?.access_token)return alert('Sign in under Settings to use AI (manual logging needs no account)');const btn=$('#analyze-btn');btn.disabled=true;message.textContent='Analyzing, please wait…';out.replaceChildren();try{const image=await getImage();const data=await api('/api/analyze',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({prompt,image})});message.textContent=(data.note||'Analysis complete')+' · Estimate only — verify serving sizes';for(const f of data.foods||[]){const item=el('div','ai-item');item.append(el('strong','',f.name),el('p','',`${f.grams}g · ${Math.round(f.kcal)} kcal · P ${f.protein}g / F ${f.fat}g / C ${f.carbs}g`));const add=el('button','primary','Confirm & Add');add.onclick=()=>{entries.push({id:crypto.randomUUID(),date:dateKey(),meal:$('#meal-type').value,name:f.name,grams:f.grams,kcal:f.kcal,protein:f.protein,fat:f.fat,carbs:f.carbs,source:'AI estimate'});save();render();queueSync();add.disabled=true;add.textContent='Added'};item.append(add);out.append(item)}}catch(e){message.textContent='Analysis failed: '+e.message}finally{btn.disabled=false}};
+// Cloudflare Workers AI text analysis (no account required).
+$('#analyze-btn').onclick=async()=>{
+  const prompt=$('#ai-prompt').value.trim(),message=$('#ai-message'),out=$('#ai-results');
+  if(!prompt)return alert('Enter a food description, such as 200g ramen.');
+  if($('#ai-image').files.length)return alert('Photo analysis is not supported yet. Please describe the food in text.');
+  if(!cfg.AI_BASE)return alert('AI service is not configured.');
+  const btn=$('#analyze-btn');btn.disabled=true;message.textContent='Analyzing, please wait…';out.replaceChildren();
+  try{
+    const response=await fetch(cfg.AI_BASE+'/analyze',{
+      method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({food:prompt})
+    });
+    const data=await response.json();
+    if(!response.ok)throw Error(data.error||'Request failed');
+    const nutrients=['calories','protein','fat','carbs'];
+    if(nutrients.some(k=>typeof data[k]!=='number'||!Number.isFinite(data[k])||data[k]<0))throw Error('Invalid nutrition data');
+    message.textContent='AI estimate only — check portion sizes before adding.'+(Number.isFinite(data.remaining)?` · ${data.remaining} AI analyses remaining today`:'');
+    const item=el('div','ai-item');
+    item.append(el('strong','',data.food||prompt),el('p','',`${data.serving||'1 serving'} · ${Math.round(data.calories)} kcal · P ${round(data.protein)}g / F ${round(data.fat)}g / C ${round(data.carbs)}g`));
+    const add=el('button','primary','Confirm & Add');
+    add.onclick=()=>{
+      const serving=String(data.serving||'1 serving');
+      const match=serving.match(/(\d+(?:\.\d+)?)\s*(?:g|grams|克|グラム)\b/i);
+      const grams=match?Number(match[1]):null;
+      entries.push({id:crypto.randomUUID(),date:dateKey(),meal:$('#meal-type').value,
+        name:String(data.food||prompt),grams:grams??serving,kcal:round(data.calories),
+        protein:round(data.protein),fat:round(data.fat),carbs:round(data.carbs),source:'AI estimate'});
+      save();render();queueSync();add.disabled=true;add.textContent='Added';
+    };
+    item.append(add);out.append(item);
+  }catch(e){message.textContent='Analysis failed: '+e.message}
+  finally{btn.disabled=false}
+};
 $('#today-date').textContent=new Date().toLocaleDateString('zh-CN',{year:'numeric',month:'long',day:'numeric',weekday:'long'});updateAuth();render();if(session&&authReady())syncCloud();
